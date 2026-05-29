@@ -1,133 +1,84 @@
 import streamlit as st
-import sqlite3
+import gspread
 import pandas as pd
+from google.oauth2.service_account import Credentials
 from datetime import datetime, date
 from io import BytesIO
 
-DB = "uniformes.db"
+# ──────────────────────────────────────────────
+# CONFIGURAÇÕES
+# ──────────────────────────────────────────────
 
 FILIAIS_POR_SEGMENTO = {
     "MERCADO": [
-        "M IVASKO GETÚLIO",
-        "M MARI IRA",
-        "M MARI SMS",
-        "M IVASKO DEZENOVE",
-        "M IVASKO NOCA",
-        "M IVASKO VICENTE",
-        "M MARI LDS",
-        "M NEW",
-        "M MARI PG02",
-        "M MARI PG"
+        "M IVASKO GETÚLIO", "M MARI IRA", "M MARI SMS", "M IVASKO DEZENOVE",
+        "M IVASKO NOCA", "M IVASKO VICENTE", "M MARI LDS", "M NEW",
+        "M MARI PG02", "M MARI PG"
     ],
     "POSTOS": [
-        "P S CAROLINE",
-        "P C CALED IMBITUVA",
-        "P C SALDANHA",
-        "P C CALED XV",
-        "P C CAROLINE FILIAL",
-        "P C ALADIM",
-        "P C PITANGA",
-        "P C KENNEDY",
-        "P C PALMEIRA ST FELICIDADE",
-        "P C PGPOSECOL",
-        "P C MASTER",
-        "P C RVERNALHA",
-        "P C MOTIVAÇÃO",
-        "P C PALMEIRA",
-        "P C POSECOL",
-        "P S P CENTRAL",
-        "P S P MANSA",
-        "P C PRUDE",
-        "P C TRAJANO",
-        "P C VICENTE"
+        "P S CAROLINE", "P C CALED IMBITUVA", "P C SALDANHA", "P C CALED XV",
+        "P C CAROLINE FILIAL", "P C ALADIM", "P C PITANGA", "P C KENNEDY",
+        "P C PALMEIRA ST FELICIDADE", "P C PGPOSECOL", "P C MASTER",
+        "P C RVERNALHA", "P C MOTIVAÇÃO", "P C PALMEIRA", "P C POSECOL",
+        "P S P CENTRAL", "P S P MANSA", "P C PRUDE", "P C TRAJANO", "P C VICENTE"
     ],
     "GÁS": [
-        "T G LEVE GAS",
-        "T G LEVE LAG",
-        "T O GAS MAIS TB",
-        "T O P GAS"
+        "T G LEVE GAS", "T G LEVE LAG", "T O GAS MAIS TB", "T O P GAS"
     ],
     "OUTROS": [
-        "GI - SERVIÇOS",
-        "Y Y GYMNAMIC",
-        "U U KM LIVRE",
-        "U U CEASA",
-        "U U CD"
+        "GI - SERVIÇOS", "Y Y GYMNAMIC", "U U KM LIVRE", "U U CEASA", "U U CD"
     ]
 }
 
 PECAS = [
-    "CAMISETA",
-    "CALÇA",
-    "JAQUETA",
-    "JAQUETA TÉRMICA",
-    "BOTA",
-    "AVENTAL",
-    "OUTROS",
-    "LUVAS VAQUETA",
-    "LUVAS PU",
-    "LUVAS RANHURADA",
-    "LUVAS",
-    "CAPA DE CHUVA"
+    "CAMISETA", "CALÇA", "JAQUETA", "JAQUETA TÉRMICA", "BOTA", "AVENTAL",
+    "OUTROS", "LUVAS VAQUETA", "LUVAS PU", "LUVAS RANHURADA", "LUVAS", "CAPA DE CHUVA"
 ]
 
 STATUS = [
-    "SOLICITADO",
-    "APROVADO",
-    "REPROVADO",
-    "DISPONÍVEL PARA RETIRADA",
-    "ENTREGUE",
-    "ENVIADO"
+    "SOLICITADO", "APROVADO", "REPROVADO",
+    "DISPONÍVEL PARA RETIRADA", "ENTREGUE", "ENVIADO"
 ]
 
+# ──────────────────────────────────────────────
+# CONEXÃO COM GOOGLE SHEETS
+# ──────────────────────────────────────────────
 
-def conectar():
-    return sqlite3.connect(DB)
+@st.cache_resource
+def conectar_sheets():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    planilha = client.open("Uniformes")
+    aba_sol = planilha.worksheet("solicitacoes")
+    aba_ite = planilha.worksheet("itens")
+    return aba_sol, aba_ite
 
 
-def criar_banco():
-    conn = conectar()
-    cursor = conn.cursor()
+def get_proximo_id(aba):
+    """Retorna o próximo ID disponível (máximo atual + 1)."""
+    valores = aba.col_values(1)[1:]  # ignora cabeçalho
+    ids = [int(v) for v in valores if v.strip().isdigit()]
+    return max(ids, default=0) + 1
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS solicitacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data_solicitacao TEXT,
-            nome TEXT,
-            matricula TEXT,
-            cargo TEXT,
-            segmento TEXT,
-            filial TEXT,
-            status TEXT,
-            data_retirada TEXT,
-            observacao_rh TEXT
-        )
-    """)
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS itens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            solicitacao_id INTEGER,
-            peca TEXT,
-            quantidade INTEGER,
-            tamanho TEXT,
-            FOREIGN KEY (solicitacao_id) REFERENCES solicitacoes(id)
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
+# ──────────────────────────────────────────────
+# FUNÇÕES DE DADOS
+# ──────────────────────────────────────────────
 
 def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens):
-    conn = conectar()
-    cursor = conn.cursor()
+    aba_sol, aba_ite = conectar_sheets()
 
-    cursor.execute("""
-        INSERT INTO solicitacoes 
-        (data_solicitacao, nome, matricula, cargo, segmento, filial, status, data_retirada, observacao_rh)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
+    sol_id = get_proximo_id(aba_sol)
+
+    aba_sol.append_row([
+        sol_id,
         datetime.now().strftime("%d/%m/%Y %H:%M"),
         nome.strip(),
         matricula.strip(),
@@ -137,44 +88,61 @@ def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens):
         "SOLICITADO",
         "",
         ""
-    ))
+    ])
 
-    solicitacao_id = cursor.lastrowid
-
+    item_id = get_proximo_id(aba_ite)
     for item in itens:
-        cursor.execute("""
-            INSERT INTO itens 
-            (solicitacao_id, peca, quantidade, tamanho)
-            VALUES (?, ?, ?, ?)
-        """, (
-            solicitacao_id,
+        aba_ite.append_row([
+            item_id,
+            sol_id,
             item["Peça"],
             int(item["Quantidade"]),
             item["Tamanho"].strip()
-        ))
+        ])
+        item_id += 1
 
-    conn.commit()
-    conn.close()
-    return solicitacao_id
+    return sol_id
 
 
 def carregar_solicitacoes():
-    conn = conectar()
-    df = pd.read_sql_query("SELECT * FROM solicitacoes ORDER BY id DESC", conn)
-    conn.close()
-    return df
+    aba_sol, _ = conectar_sheets()
+    dados = aba_sol.get_all_records()
+    if not dados:
+        return pd.DataFrame(columns=[
+            "id", "data_solicitacao", "nome", "matricula", "cargo",
+            "segmento", "filial", "status", "data_retirada", "observacao_rh"
+        ])
+    df = pd.DataFrame(dados)
+    df["id"] = pd.to_numeric(df["id"], errors="coerce")
+    return df.sort_values("id", ascending=False).reset_index(drop=True)
 
 
 def carregar_itens(solicitacao_id):
-    conn = conectar()
-    df = pd.read_sql_query("""
-        SELECT peca AS Peça, quantidade AS Quantidade, tamanho AS Tamanho
-        FROM itens
-        WHERE solicitacao_id = ?
-    """, conn, params=(solicitacao_id,))
-    conn.close()
-    return df
+    _, aba_ite = conectar_sheets()
+    dados = aba_ite.get_all_records()
+    if not dados:
+        return pd.DataFrame(columns=["Peça", "Quantidade", "Tamanho"])
+    df = pd.DataFrame(dados)
+    df["solicitacao_id"] = pd.to_numeric(df["solicitacao_id"], errors="coerce")
+    df_filtrado = df[df["solicitacao_id"] == solicitacao_id][["peca", "quantidade", "tamanho"]]
+    df_filtrado.columns = ["Peça", "Quantidade", "Tamanho"]
+    return df_filtrado.reset_index(drop=True)
 
+
+def atualizar_status(solicitacao_id, status, data_retirada, observacao):
+    aba_sol, _ = conectar_sheets()
+    ids = aba_sol.col_values(1)  # coluna A = id
+    try:
+        linha = ids.index(str(solicitacao_id)) + 1  # +1 porque Sheets começa em 1
+    except ValueError:
+        st.error("Solicitação não encontrada.")
+        return
+
+    # Colunas: id=1, data=2, nome=3, matricula=4, cargo=5, segmento=6,
+    #          filial=7, status=8, data_retirada=9, observacao_rh=10
+    aba_sol.update_cell(linha, 8, status)
+    aba_sol.update_cell(linha, 9, data_retirada)
+    aba_sol.update_cell(linha, 10, observacao.strip())
 
 
 def gerar_excel_solicitacoes(df_solicitacoes):
@@ -218,45 +186,23 @@ def gerar_excel_solicitacoes(df_solicitacoes):
                 })
 
     df_excel = pd.DataFrame(linhas)
-
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_excel.to_excel(writer, index=False, sheet_name="Solicitações")
-
     output.seek(0)
     return output
 
 
-def atualizar_status(solicitacao_id, status, data_retirada, observacao):
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE solicitacoes
-        SET status = ?, data_retirada = ?, observacao_rh = ?
-        WHERE id = ?
-    """, (
-        status,
-        data_retirada,
-        observacao.strip(),
-        solicitacao_id
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-criar_banco()
+# ──────────────────────────────────────────────
+# INTERFACE
+# ──────────────────────────────────────────────
 
 st.set_page_config(page_title="Solicitação de Uniformes", layout="wide")
-
 st.title("Solicitação de Uniformes")
 
-menu = st.sidebar.radio(
-    "Menu",
-    ["Nova Solicitação", "Acompanhar Solicitação", "Área do RH"]
-)
+menu = st.sidebar.radio("Menu", ["Nova Solicitação", "Acompanhar Solicitação", "Área do RH"])
 
+# ── NOVA SOLICITAÇÃO ──────────────────────────
 if menu == "Nova Solicitação":
     st.subheader("Nova Solicitação")
 
@@ -268,7 +214,7 @@ if menu == "Nova Solicitação":
     with col1:
         nome = st.text_input("Nome do colaborador")
         matricula = st.text_input("Matrícula")
-        cargo = st.text_input("Funcao")
+        cargo = st.text_input("Função")
 
     with col2:
         segmento = st.selectbox("Segmento", list(FILIAIS_POR_SEGMENTO.keys()))
@@ -280,19 +226,16 @@ if menu == "Nova Solicitação":
 
     with c1:
         peca = st.selectbox("Peça", PECAS)
-
     with c2:
         quantidade = st.number_input("Quantidade", min_value=1, max_value=50, value=1)
-
     with c3:
         tamanho = st.text_input("Tamanho", placeholder="Ex.: P, M, G, GG, 40, 41")
 
     descricao_outros = ""
-
     if peca == "OUTROS":
         descricao_outros = st.text_input(
             "Descreva a peça desejada",
-            placeholder="Ex.: Camisa social, mangote, protetor, outro item..."
+            placeholder="Ex.: Camisa social, mangote, protetor..."
         )
 
     if st.button("Adicionar peça na solicitação"):
@@ -302,7 +245,6 @@ if menu == "Nova Solicitação":
             st.error("Informe o tamanho da peça.")
         else:
             peca_final = descricao_outros.strip().upper() if peca == "OUTROS" else peca
-
             st.session_state.itens_temp.append({
                 "Peça": peca_final,
                 "Quantidade": quantidade,
@@ -337,17 +279,15 @@ if menu == "Nova Solicitação":
         elif not st.session_state.itens_temp:
             st.error("Adicione pelo menos uma peça antes de finalizar.")
         else:
-            protocolo = salvar_solicitacao(
-                nome,
-                matricula,
-                cargo,
-                segmento,
-                filial,
-                st.session_state.itens_temp
-            )
+            with st.spinner("Salvando solicitação..."):
+                protocolo = salvar_solicitacao(
+                    nome, matricula, cargo, segmento, filial,
+                    st.session_state.itens_temp
+                )
             st.session_state.itens_temp = []
             st.success(f"Solicitação finalizada com sucesso. Protocolo: #{protocolo}")
 
+# ── ACOMPANHAR SOLICITAÇÃO ────────────────────
 elif menu == "Acompanhar Solicitação":
     st.subheader("Acompanhar Solicitação")
 
@@ -355,12 +295,12 @@ elif menu == "Acompanhar Solicitação":
 
     with col1:
         matricula_busca = st.text_input("Buscar por matrícula")
-
     with col2:
         protocolo_busca = st.text_input("Buscar por protocolo")
 
     if matricula_busca or protocolo_busca:
-        df = carregar_solicitacoes()
+        with st.spinner("Carregando..."):
+            df = carregar_solicitacoes()
 
         if protocolo_busca.strip():
             try:
@@ -377,7 +317,6 @@ elif menu == "Acompanhar Solicitação":
                 st.markdown("---")
                 st.markdown(f"### Protocolo #{row['id']}")
                 st.metric("Status RH", row["status"])
-
                 st.write(f"**Data:** {row['data_solicitacao']}")
                 st.write(f"**Colaborador:** {row['nome']}")
                 st.write(f"**Matrícula:** {row['matricula']}")
@@ -387,20 +326,21 @@ elif menu == "Acompanhar Solicitação":
 
                 if row["data_retirada"]:
                     st.write(f"**Data de retirada:** {row['data_retirada']}")
-
                 if row["observacao_rh"]:
                     st.info(f"Observação RH: {row['observacao_rh']}")
 
                 st.markdown("**Itens solicitados:**")
                 st.dataframe(carregar_itens(row["id"]), use_container_width=True, hide_index=True)
 
+# ── ÁREA DO RH ────────────────────────────────
 elif menu == "Área do RH":
     st.subheader("Área do RH")
 
     senha = st.text_input("Senha RH", type="password")
 
     if senha == "rh123":
-        df = carregar_solicitacoes()
+        with st.spinner("Carregando solicitações..."):
+            df = carregar_solicitacoes()
 
         col1, col2, col3 = st.columns(3)
 
@@ -409,13 +349,8 @@ elif menu == "Área do RH":
                 "Filtrar por segmento",
                 ["TODOS"] + list(FILIAIS_POR_SEGMENTO.keys())
             )
-
         with col2:
-            filtro_status = st.selectbox(
-                "Filtrar por status",
-                ["TODOS"] + STATUS
-            )
-
+            filtro_status = st.selectbox("Filtrar por status", ["TODOS"] + STATUS)
         with col3:
             if filtro_segmento != "TODOS":
                 lista_filiais = FILIAIS_POR_SEGMENTO[filtro_segmento]
@@ -425,19 +360,13 @@ elif menu == "Área do RH":
                     for filiais in FILIAIS_POR_SEGMENTO.values()
                     for filial in filiais
                 })
-
-            filtro_filial = st.selectbox(
-                "Filtrar por filial",
-                ["TODAS"] + lista_filiais
-            )
+            filtro_filial = st.selectbox("Filtrar por filial", ["TODAS"] + lista_filiais)
 
         st.markdown("### Filtro por data da solicitação")
-
         col_data1, col_data2 = st.columns(2)
 
         with col_data1:
             filtro_data_inicio = st.date_input("Data inicial", value=date.today())
-
         with col_data2:
             filtro_data_fim = st.date_input("Data final", value=date.today())
 
@@ -445,10 +374,8 @@ elif menu == "Área do RH":
 
         if filtro_segmento != "TODOS":
             df_filtrado = df_filtrado[df_filtrado["segmento"] == filtro_segmento]
-
         if filtro_status != "TODOS":
             df_filtrado = df_filtrado[df_filtrado["status"] == filtro_status]
-
         if filtro_filial != "TODAS":
             df_filtrado = df_filtrado[df_filtrado["filial"] == filtro_filial]
 
@@ -463,7 +390,6 @@ elif menu == "Área do RH":
                 (df_filtrado["_data_filtro"] >= filtro_data_inicio) &
                 (df_filtrado["_data_filtro"] <= filtro_data_fim)
             ]
-
             df_filtrado = df_filtrado.drop(columns=["_data_filtro"])
 
         st.markdown("### Solicitações")
@@ -471,7 +397,6 @@ elif menu == "Área do RH":
 
         if not df_filtrado.empty:
             arquivo_excel = gerar_excel_solicitacoes(df_filtrado)
-
             st.download_button(
                 label="Baixar solicitações filtradas em Excel",
                 data=arquivo_excel,
@@ -500,18 +425,17 @@ elif menu == "Área do RH":
             st.dataframe(carregar_itens(solicitacao_id), use_container_width=True, hide_index=True)
 
             novo_status = st.selectbox("Novo status", STATUS)
-
             data_retirada = st.date_input("Data de retirada", value=date.today())
-
             observacao = st.text_area("Observação RH")
 
             if st.button("Salvar atualização"):
-                atualizar_status(
-                    solicitacao_id,
-                    novo_status,
-                    data_retirada.strftime("%d/%m/%Y"),
-                    observacao
-                )
+                with st.spinner("Salvando..."):
+                    atualizar_status(
+                        solicitacao_id,
+                        novo_status,
+                        data_retirada.strftime("%d/%m/%Y"),
+                        observacao
+                    )
                 st.success("Status atualizado com sucesso.")
                 st.rerun()
 
