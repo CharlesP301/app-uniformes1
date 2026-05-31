@@ -40,6 +40,12 @@ STATUS = [
     "DISPONÍVEL PARA RETIRADA", "ENTREGUE", "ENVIADO"
 ]
 
+CABECALHO = [
+    "protocolo", "data_solicitacao", "nome", "matricula", "cargo",
+    "segmento", "filial", "peca", "quantidade", "tamanho",
+    "status", "data_retirada", "observacao_rh"
+]
+
 # ──────────────────────────────────────────────
 # CONEXÃO COM GOOGLE SHEETS
 # ──────────────────────────────────────────────
@@ -55,16 +61,13 @@ def conectar_sheets():
         scopes=scopes
     )
     client = gspread.authorize(creds)
-    planilha = client.open("Uniformes")
-    aba_sol = planilha.worksheet("solicitacoes")
-    aba_ite = planilha.worksheet("itens")
-    return aba_sol, aba_ite
+    aba = client.open("Uniformes").worksheet("solicitacoes")
+    return aba
 
 
-def get_proximo_id(aba):
-    """Retorna o próximo ID disponível (máximo atual + 1)."""
+def get_proximo_protocolo(aba):
     valores = aba.col_values(1)[1:]  # ignora cabeçalho
-    ids = [int(v) for v in valores if v.strip().isdigit()]
+    ids = [int(v) for v in valores if str(v).strip().isdigit()]
     return max(ids, default=0) + 1
 
 
@@ -73,122 +76,68 @@ def get_proximo_id(aba):
 # ──────────────────────────────────────────────
 
 def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens):
-    aba_sol, aba_ite = conectar_sheets()
+    aba = conectar_sheets()
+    protocolo = get_proximo_protocolo(aba)
+    data = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    sol_id = get_proximo_id(aba_sol)
-
-    aba_sol.append_row([
-        sol_id,
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
-        nome.strip(),
-        matricula.strip(),
-        cargo.strip(),
-        segmento,
-        filial,
-        "SOLICITADO",
-        "",
-        ""
-    ])
-
-    item_id = get_proximo_id(aba_ite)
+    linhas = []
     for item in itens:
-        aba_ite.append_row([
-            item_id,
-            sol_id,
+        linhas.append([
+            protocolo,
+            data,
+            nome.strip(),
+            matricula.strip(),
+            cargo.strip(),
+            segmento,
+            filial,
             item["Peça"],
             int(item["Quantidade"]),
-            item["Tamanho"].strip()
+            item["Tamanho"].strip(),
+            "SOLICITADO",
+            "",
+            ""
         ])
-        item_id += 1
 
-    return sol_id
+    aba.append_rows(linhas)
+    return protocolo
 
 
 def carregar_solicitacoes():
-    aba_sol, _ = conectar_sheets()
-    dados = aba_sol.get_all_records()
+    aba = conectar_sheets()
+    dados = aba.get_all_records()
     if not dados:
-        return pd.DataFrame(columns=[
-            "id", "data_solicitacao", "nome", "matricula", "cargo",
-            "segmento", "filial", "status", "data_retirada", "observacao_rh"
-        ])
+        return pd.DataFrame(columns=CABECALHO)
     df = pd.DataFrame(dados)
-    df["id"] = pd.to_numeric(df["id"], errors="coerce")
-    return df.sort_values("id", ascending=False).reset_index(drop=True)
+    df["protocolo"] = pd.to_numeric(df["protocolo"], errors="coerce")
+    return df.sort_values("protocolo", ascending=False).reset_index(drop=True)
 
 
-def carregar_itens(solicitacao_id):
-    _, aba_ite = conectar_sheets()
-    dados = aba_ite.get_all_records()
-    if not dados:
-        return pd.DataFrame(columns=["Peça", "Quantidade", "Tamanho"])
-    df = pd.DataFrame(dados)
-    df["solicitacao_id"] = pd.to_numeric(df["solicitacao_id"], errors="coerce")
-    df_filtrado = df[df["solicitacao_id"] == solicitacao_id][["peca", "quantidade", "tamanho"]]
-    df_filtrado.columns = ["Peça", "Quantidade", "Tamanho"]
-    return df_filtrado.reset_index(drop=True)
+def atualizar_status(protocolo, status, data_retirada, observacao):
+    aba = conectar_sheets()
+    protocolos = aba.col_values(1)[1:]  # ignora cabeçalho
+
+    linhas_para_atualizar = [
+        i + 2  # +2 = pula cabeçalho e ajusta índice base-1
+        for i, v in enumerate(protocolos)
+        if str(v).strip() == str(protocolo)
+    ]
+
+    for linha in linhas_para_atualizar:
+        aba.update_cell(linha, 11, status)
+        aba.update_cell(linha, 12, data_retirada)
+        aba.update_cell(linha, 13, observacao.strip())
 
 
-def atualizar_status(solicitacao_id, status, data_retirada, observacao):
-    aba_sol, _ = conectar_sheets()
-    ids = aba_sol.col_values(1)  # coluna A = id
-    try:
-        linha = ids.index(str(solicitacao_id)) + 1  # +1 porque Sheets começa em 1
-    except ValueError:
-        st.error("Solicitação não encontrada.")
-        return
-
-    # Colunas: id=1, data=2, nome=3, matricula=4, cargo=5, segmento=6,
-    #          filial=7, status=8, data_retirada=9, observacao_rh=10
-    aba_sol.update_cell(linha, 8, status)
-    aba_sol.update_cell(linha, 9, data_retirada)
-    aba_sol.update_cell(linha, 10, observacao.strip())
-
-
-def gerar_excel_solicitacoes(df_solicitacoes):
-    linhas = []
-
-    for _, row in df_solicitacoes.iterrows():
-        itens = carregar_itens(row["id"])
-
-        if itens.empty:
-            linhas.append({
-                "Protocolo": row["id"],
-                "Data Solicitação": row["data_solicitacao"],
-                "Nome": row["nome"],
-                "Matrícula": row["matricula"],
-                "Função": row["cargo"],
-                "Segmento": row["segmento"],
-                "Filial": row["filial"],
-                "Peça": "",
-                "Quantidade": "",
-                "Tamanho": "",
-                "Status": row["status"],
-                "Data Retirada": row["data_retirada"],
-                "Observação RH": row["observacao_rh"]
-            })
-        else:
-            for _, item in itens.iterrows():
-                linhas.append({
-                    "Protocolo": row["id"],
-                    "Data Solicitação": row["data_solicitacao"],
-                    "Nome": row["nome"],
-                    "Matrícula": row["matricula"],
-                    "Função": row["cargo"],
-                    "Segmento": row["segmento"],
-                    "Filial": row["filial"],
-                    "Peça": item["Peça"],
-                    "Quantidade": item["Quantidade"],
-                    "Tamanho": item["Tamanho"],
-                    "Status": row["status"],
-                    "Data Retirada": row["data_retirada"],
-                    "Observação RH": row["observacao_rh"]
-                })
-
-    df_excel = pd.DataFrame(linhas)
+def gerar_excel(df):
     output = BytesIO()
+    df_export = df.copy()
+    df_export.columns = [
+        "Protocolo", "Data Solicitação", "Nome", "Matrícula", "Função",
+        "Segmento", "Filial", "Peça", "Quantidade", "Tamanho",
+        "Status", "Data Retirada", "Observação RH"
+    ]
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_excel.to_excel(writer, index=False, sheet_name="Solicitações")
+        df_export.to_excel(writer, index=False, sheet_name="Solicitações")
     output.seek(0)
     return output
 
@@ -304,7 +253,7 @@ elif menu == "Acompanhar Solicitação":
 
         if protocolo_busca.strip():
             try:
-                df = df[df["id"] == int(protocolo_busca)]
+                df = df[df["protocolo"] == int(protocolo_busca)]
             except ValueError:
                 df = df.iloc[0:0]
         else:
@@ -313,9 +262,10 @@ elif menu == "Acompanhar Solicitação":
         if df.empty:
             st.warning("Nenhuma solicitação encontrada.")
         else:
-            for _, row in df.iterrows():
+            for protocolo, grupo in df.groupby("protocolo"):
                 st.markdown("---")
-                st.markdown(f"### Protocolo #{row['id']}")
+                row = grupo.iloc[0]
+                st.markdown(f"### Protocolo #{protocolo}")
                 st.metric("Status RH", row["status"])
                 st.write(f"**Data:** {row['data_solicitacao']}")
                 st.write(f"**Colaborador:** {row['nome']}")
@@ -330,7 +280,9 @@ elif menu == "Acompanhar Solicitação":
                     st.info(f"Observação RH: {row['observacao_rh']}")
 
                 st.markdown("**Itens solicitados:**")
-                st.dataframe(carregar_itens(row["id"]), use_container_width=True, hide_index=True)
+                itens = grupo[["peca", "quantidade", "tamanho"]].copy()
+                itens.columns = ["Peça", "Quantidade", "Tamanho"]
+                st.dataframe(itens, use_container_width=True, hide_index=True)
 
 # ── ÁREA DO RH ────────────────────────────────
 elif menu == "Área do RH":
@@ -396,7 +348,7 @@ elif menu == "Área do RH":
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
         if not df_filtrado.empty:
-            arquivo_excel = gerar_excel_solicitacoes(df_filtrado)
+            arquivo_excel = gerar_excel(df_filtrado)
             st.download_button(
                 label="Baixar solicitações filtradas em Excel",
                 data=arquivo_excel,
@@ -409,12 +361,10 @@ elif menu == "Área do RH":
         if df_filtrado.empty:
             st.warning("Nenhuma solicitação encontrada.")
         else:
-            solicitacao_id = st.selectbox(
-                "Selecione o protocolo",
-                df_filtrado["id"].tolist()
-            )
+            protocolos_unicos = sorted(df_filtrado["protocolo"].unique().tolist(), reverse=True)
+            protocolo_sel = st.selectbox("Selecione o protocolo", protocolos_unicos)
 
-            dados = df_filtrado[df_filtrado["id"] == solicitacao_id].iloc[0]
+            dados = df_filtrado[df_filtrado["protocolo"] == protocolo_sel].iloc[0]
 
             st.write(f"**Colaborador:** {dados['nome']}")
             st.write(f"**Segmento:** {dados['segmento']}")
@@ -422,7 +372,9 @@ elif menu == "Área do RH":
             st.write(f"**Status atual:** {dados['status']}")
 
             st.markdown("#### Itens")
-            st.dataframe(carregar_itens(solicitacao_id), use_container_width=True, hide_index=True)
+            itens = df_filtrado[df_filtrado["protocolo"] == protocolo_sel][["peca", "quantidade", "tamanho"]].copy()
+            itens.columns = ["Peça", "Quantidade", "Tamanho"]
+            st.dataframe(itens, use_container_width=True, hide_index=True)
 
             novo_status = st.selectbox("Novo status", STATUS)
             data_retirada = st.date_input("Data de retirada", value=date.today())
@@ -431,7 +383,7 @@ elif menu == "Área do RH":
             if st.button("Salvar atualização"):
                 with st.spinner("Salvando..."):
                     atualizar_status(
-                        solicitacao_id,
+                        protocolo_sel,
                         novo_status,
                         data_retirada.strftime("%d/%m/%Y"),
                         observacao
