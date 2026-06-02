@@ -149,7 +149,7 @@ def gerar_excel(df):
 st.set_page_config(page_title="Solicitação de Uniformes", layout="wide")
 st.title("Solicitação de Uniformes")
 
-menu = st.sidebar.radio("Menu", ["Nova Solicitação", "Acompanhar Solicitação", "Área do RH"])
+menu = st.sidebar.radio("Menu", ["Nova Solicitação", "Área do RH"])
 
 # ── NOVA SOLICITAÇÃO ──────────────────────────
 if menu == "Nova Solicitação":
@@ -235,54 +235,6 @@ if menu == "Nova Solicitação":
                 )
             st.session_state.itens_temp = []
             st.success(f"Solicitação finalizada com sucesso. Protocolo: #{protocolo}")
-
-# ── ACOMPANHAR SOLICITAÇÃO ────────────────────
-elif menu == "Acompanhar Solicitação":
-    st.subheader("Acompanhar Solicitação")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        matricula_busca = st.text_input("Buscar por matrícula")
-    with col2:
-        protocolo_busca = st.text_input("Buscar por protocolo")
-
-    if matricula_busca or protocolo_busca:
-        with st.spinner("Carregando..."):
-            df = carregar_solicitacoes()
-
-        if protocolo_busca.strip():
-            try:
-                df = df[df["protocolo"] == int(protocolo_busca)]
-            except ValueError:
-                df = df.iloc[0:0]
-        else:
-            df = df[df["matricula"].astype(str) == matricula_busca.strip()]
-
-        if df.empty:
-            st.warning("Nenhuma solicitação encontrada.")
-        else:
-            for protocolo, grupo in df.groupby("protocolo"):
-                st.markdown("---")
-                row = grupo.iloc[0]
-                st.markdown(f"### Protocolo #{protocolo}")
-                st.metric("Status RH", row["status"])
-                st.write(f"**Data:** {row['data_solicitacao']}")
-                st.write(f"**Colaborador:** {row['nome']}")
-                st.write(f"**Matrícula:** {row['matricula']}")
-                st.write(f"**Cargo:** {row['cargo']}")
-                st.write(f"**Segmento:** {row['segmento']}")
-                st.write(f"**Filial:** {row['filial']}")
-
-                if row["data_retirada"]:
-                    st.write(f"**Data de retirada:** {row['data_retirada']}")
-                if row["observacao_rh"]:
-                    st.info(f"Observação RH: {row['observacao_rh']}")
-
-                st.markdown("**Itens solicitados:**")
-                itens = grupo[["peca", "quantidade", "tamanho"]].copy()
-                itens.columns = ["Peça", "Quantidade", "Tamanho"]
-                st.dataframe(itens, use_container_width=True, hide_index=True)
 
 # ── ÁREA DO RH ────────────────────────────────
 elif menu == "Área do RH":
