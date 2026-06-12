@@ -20,7 +20,7 @@ FILIAIS_POR_SEGMENTO = {
         "P C CAROLINE FILIAL", "P C ALADIM", "P C PITANGA", "P C KENNEDY",
         "P C PALMEIRA ST FELICIDADE", "P C PGPOSECOL", "P C MASTER",
         "P C RVERNALHA", "P C MOTIVAÇÃO", "P C PALMEIRA", "P C POSECOL",
-        "P S P CENTRAL", "P S P MANSA", "P C PRUDE", "P C TRAJANO", "P C VICENTE"
+        "P S P CENTRAL", "P S P MANSA", "P C PRUDE", "P C TRAJANO", "P C VICENTE", "BOEING"
     ],
     "GÁS": [
         "T G LEVE GAS", "T G LEVE LAG", "T O GAS MAIS TB", "T O P GAS"
@@ -161,7 +161,12 @@ if menu == "Nova Solicitação":
     col1, col2 = st.columns(2)
 
     with col1:
-        nome = st.text_input("Nome do colaborador")
+        # ── ALTERAÇÃO: label, placeholder e help atualizado ──
+        nome = st.text_input(
+            "Nome completo do colaborador",
+            placeholder="Ex.: Lucas Oliveira Silva",
+            help="Informe nome e sobrenome para facilitar a identificação."
+        )
         matricula = st.text_input("Matrícula")
         cargo = st.text_input("Função")
 
@@ -223,8 +228,12 @@ if menu == "Nova Solicitação":
     st.markdown("---")
 
     if st.button("Finalizar Solicitação"):
-        if not nome.strip() or not cargo.strip():
-            st.error("Preencha nome e cargo.")
+        # ── ALTERAÇÃO: validação exige nome completo (mínimo 2 palavras) ──
+        palavras_nome = [p for p in nome.strip().split() if p]
+        if len(palavras_nome) < 2:
+            st.error("Informe o nome completo do colaborador (nome e sobrenome).")
+        elif not cargo.strip():
+            st.error("Preencha o cargo.")
         elif not st.session_state.itens_temp:
             st.error("Adicione pelo menos uma peça antes de finalizar.")
         else:
