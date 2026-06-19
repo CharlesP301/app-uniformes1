@@ -272,50 +272,44 @@ if menu == "Nova Solicitação":
             eh_irati = filial in FILIAIS_IRATI
             data_entrega = calcular_data_entrega(agora)
 
-            st.markdown(
-                f"""
-                <div style="
-                    background: var(--background-color, #ffffff);
-                    border: 1px solid #d1fae5;
-                    border-radius: 12px;
-                    padding: 1.5rem;
-                    margin-top: 1.5rem;
-                ">
-                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:1rem;">
-                        <span style="font-size:2rem;">✅</span>
-                        <div>
-                            <div style="font-size:1.1rem; font-weight:600; color:#065f46;">
-                                Solicitação enviada com sucesso!
-                            </div>
-                            <div style="font-size:0.9rem; color:#6b7280;">
-                                Protocolo: <strong>#{protocolo}</strong> — {agora.strftime("%d/%m/%Y às %H:%M")}
-                            </div>
-                        </div>
-                    </div>
-                    <hr style="border:none; border-top:1px solid #e5e7eb; margin:0.75rem 0;">
-                    <div style="font-size:0.9rem; color:#374151; margin-bottom:0.5rem;">
-                        <strong>Colaborador:</strong> {nome.strip()}<br>
-                        <strong>Filial:</strong> {filial} — {segmento}
-                    </div>
-                    <hr style="border:none; border-top:1px solid #e5e7eb; margin:0.75rem 0;">
-                    {f"""
-                    <div style="background:#eff6ff; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#1e40af;">
-                        🗓️ <strong>Previsão de entrega:</strong> {data_entrega.strftime("%d/%m/%Y")} (3 dias úteis)<br><br>
-                        ⏰ <strong>Horários exclusivos de retirada em Irati:</strong><br>
-                        &nbsp;&nbsp;&nbsp;• <strong>08:30 às 09:00</strong><br>
-                        &nbsp;&nbsp;&nbsp;• <strong>16:30 às 17:00</strong><br><br>
-                        ℹ️ O atendimento ocorre <strong>exclusivamente</strong> nesses horários, mediante disponibilidade em estoque.
-                    </div>
-                    """ if eh_irati else f"""
-                    <div style="background:#fefce8; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#854d0e;">
-                        🚚 <strong>Entrega via logística</strong><br><br>
-                        Seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.
-                    </div>
-                    """}
-                </div>
-                """,
-                unsafe_allow_html=True
+            if eh_irati:
+                bloco_entrega = (
+                    '<div style="background:#eff6ff; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#1e40af;">'
+                    '🗓️ <strong>Previsão de entrega:</strong> ' + data_entrega.strftime("%d/%m/%Y") + ' (3 dias úteis)<br><br>'
+                    '⏰ <strong>Horários exclusivos de retirada em Irati:</strong><br>'
+                    '&nbsp;&nbsp;&nbsp;• <strong>08:30 às 09:00</strong><br>'
+                    '&nbsp;&nbsp;&nbsp;• <strong>16:30 às 17:00</strong><br><br>'
+                    'ℹ️ O atendimento ocorre <strong>exclusivamente</strong> nesses horários, mediante disponibilidade em estoque.'
+                    '</div>'
+                )
+            else:
+                bloco_entrega = (
+                    '<div style="background:#fefce8; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#854d0e;">'
+                    '🚚 <strong>Entrega via logística</strong><br><br>'
+                    'Seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.'
+                    '</div>'
+                )
+
+            html_aviso = (
+                '<div style="border:1px solid #d1fae5; border-radius:12px; padding:1.5rem; margin-top:1.5rem;">'
+                '<div style="display:flex; align-items:center; gap:12px; margin-bottom:1rem;">'
+                '<span style="font-size:2rem;">✅</span>'
+                '<div>'
+                '<div style="font-size:1.1rem; font-weight:600; color:#065f46;">Solicitação enviada com sucesso!</div>'
+                '<div style="font-size:0.9rem; color:#6b7280;">Protocolo: <strong>#' + str(protocolo) + '</strong> — ' + agora.strftime("%d/%m/%Y às %H:%M") + '</div>'
+                '</div>'
+                '</div>'
+                '<hr style="border:none; border-top:1px solid #e5e7eb; margin:0.75rem 0;">'
+                '<div style="font-size:0.9rem; color:#374151; margin-bottom:0.75rem;">'
+                '<strong>Colaborador:</strong> ' + nome.strip() + '<br>'
+                '<strong>Filial:</strong> ' + filial + ' — ' + segmento +
+                '</div>'
+                '<hr style="border:none; border-top:1px solid #e5e7eb; margin:0.75rem 0;">'
+                + bloco_entrega +
+                '</div>'
             )
+
+            st.markdown(html_aviso, unsafe_allow_html=True)
 
 # ── ÁREA DO RH ────────────────────────────────
 elif menu == "Área do RH":
