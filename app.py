@@ -286,7 +286,7 @@ if menu == "Nova Solicitação":
                 bloco_entrega = (
                     '<div style="background:#fefce8; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#854d0e;">'
                     '🚚 <strong>Entrega via logística</strong><br><br>'
-                    'Seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.'
+                    'Se disponível no estoque, seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.'
                     '</div>'
                 )
 
