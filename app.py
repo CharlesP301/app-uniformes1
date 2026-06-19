@@ -3,6 +3,7 @@ import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from io import BytesIO
 
 # ──────────────────────────────────────────────
@@ -63,10 +64,15 @@ STATUS = [
     "DISPONÍVEL PARA RETIRADA", "ENTREGUE", "ENVIADO"
 ]
 
+MOTIVOS = [
+    "DESGASTE", "NÃO RECEBEU", "TROCA DE TAMANHO",
+    "MUDANÇA DE LOJA", "MUDANÇA DE FUNÇÃO"
+]
+
 CABECALHO = [
     "protocolo", "data_solicitacao", "nome", "matricula", "cargo",
     "segmento", "filial", "peca", "quantidade", "tamanho",
-    "status", "data_retirada", "observacao_rh"
+    "motivo", "status", "data_retirada", "observacao_rh"
 ]
 
 # ──────────────────────────────────────────────
@@ -98,10 +104,10 @@ def get_proximo_protocolo(aba):
 # FUNÇÕES DE DADOS
 # ──────────────────────────────────────────────
 
-def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens):
+def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens, motivo):
     aba = conectar_sheets()
     protocolo = get_proximo_protocolo(aba)
-    data = datetime.now().strftime("%d/%m/%Y %H:%M")
+    data = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
 
     linhas = []
     for item in itens:
@@ -116,6 +122,7 @@ def salvar_solicitacao(nome, matricula, cargo, segmento, filial, itens):
             item["Peça"],
             int(item["Quantidade"]),
             item["Tamanho"].strip(),
+            motivo,
             "SOLICITADO",
             "",
             ""
@@ -146,9 +153,9 @@ def atualizar_status(protocolo, status, data_retirada, observacao):
     ]
 
     for linha in linhas_para_atualizar:
-        aba.update_cell(linha, 11, status)
-        aba.update_cell(linha, 12, data_retirada)
-        aba.update_cell(linha, 13, observacao.strip())
+        aba.update_cell(linha, 12, status)
+        aba.update_cell(linha, 13, data_retirada)
+        aba.update_cell(linha, 14, observacao.strip())
 
 
 def gerar_excel(df):
@@ -157,7 +164,7 @@ def gerar_excel(df):
     df_export.columns = [
         "Protocolo", "Data Solicitação", "Nome", "Matrícula", "Função",
         "Segmento", "Filial", "Peça", "Quantidade", "Tamanho",
-        "Status", "Data Retirada", "Observação RH"
+        "Motivo", "Status", "Data Retirada", "Observação RH"
     ]
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Solicitações")
@@ -196,6 +203,7 @@ if menu == "Nova Solicitação":
     with col2:
         segmento = st.selectbox("Segmento", list(FILIAIS_POR_SEGMENTO.keys()))
         filial = st.selectbox("Filial", FILIAIS_POR_SEGMENTO[segmento])
+        motivo = st.selectbox("Motivo da solicitação", MOTIVOS)
 
     st.markdown("### Adicionar peças")
 
@@ -263,12 +271,12 @@ if menu == "Nova Solicitação":
             with st.spinner("Salvando solicitação..."):
                 protocolo = salvar_solicitacao(
                     nome, matricula, cargo, segmento, filial,
-                    st.session_state.itens_temp
+                    st.session_state.itens_temp, motivo
                 )
             st.session_state.itens_temp = []
 
             # ── AVISO DE CONFIRMAÇÃO ──────────────────────────
-            agora = datetime.now()
+            agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
             eh_irati = filial in FILIAIS_IRATI
             data_entrega = calcular_data_entrega(agora)
 
@@ -286,7 +294,7 @@ if menu == "Nova Solicitação":
                 bloco_entrega = (
                     '<div style="background:#fefce8; border-radius:8px; padding:0.85rem 1rem; font-size:0.88rem; color:#854d0e;">'
                     '🚚 <strong>Entrega via logística</strong><br><br>'
-                    'Se disponível no estoque, seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.'
+                    'Seu pedido será encaminhado à sua unidade em <strong>7 a 15 dias úteis</strong> após a data da solicitação.'
                     '</div>'
                 )
 
